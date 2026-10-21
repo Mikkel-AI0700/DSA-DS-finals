@@ -1,36 +1,46 @@
 from models import StudentBookingRequest
 
 class TimeslotBookedException (RuntimeError):
-    def __str__ (self, request: StudentBookingRequest):
+    def __init__ (self, request: StudentBookingRequest):
+        self.req_date = request.date_requested
+        self.req_start_time = request.time_slot_start
+        self.req_end_time = request.time_slot_end
+    
+    def __str__ (self):
         booked_exception_msg = """
         [-] Error: The selected time frame is already full
         Date: {} | Start time: {} | End time: {}
         """
+        
         return booked_exception_msg.format(
-            request.date_requested,
-            request.time_slot_start,
-            request.time_slot_end
+            self.req_date,
+            self.req_start_time,
+            self.req_end_time
         )
-
 class DayFullyBookedException (RuntimeError):
-    def __str__ (self, request: StudentBookingRequest):
+    def __init__ (self, request: StudentBookingRequest):
+        self.req_date = request.date_requested
+    
+    def __str__ (self):
         formatted_message = """
         [-] Error: The selected day is already fully booked
         Date: {}
         """
         
-        return formatted_message.format(
-            request.date_requested
-        )
+        return formatted_message.format(self.req_date)
     
 class IncorrectLoginDetailsException (ValueError):
-    def __str__ (self, request: StudentBookingRequest):
+    def __init__ (self, request: StudentBookingRequest):
+        self.req_name = request.s_name
+        self.req_ref = request.s_ref_num
+    
+    def __str__ (self):
         formatted_message = """
         [-] Error: The login information is incorrect
         Login name: {} | Login Reference number: {}
         """
         
         return formatted_message.format(
-            request.time_slot_start,
-            request.time_slot_end
+            self.req_name,
+            self.req_ref
         )
