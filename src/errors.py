@@ -1,7 +1,8 @@
 from models import StudentBookingRequest
 
-class TimeslotBookedException (RuntimeError):
+class TimeslotBookedException (Exception):
     def __init__ (self, request: StudentBookingRequest):
+        super().__init__()
         self.req_date = request.date_requested
         self.req_start_time = request.time_slot_start
         self.req_end_time = request.time_slot_end
@@ -17,8 +18,10 @@ class TimeslotBookedException (RuntimeError):
             self.req_start_time,
             self.req_end_time
         )
-class DayFullyBookedException (RuntimeError):
+        
+class DayFullyBookedException (Exception):
     def __init__ (self, request: StudentBookingRequest):
+        super().__init__()
         self.req_date = request.date_requested
     
     def __str__ (self):
@@ -29,8 +32,9 @@ class DayFullyBookedException (RuntimeError):
         
         return formatted_message.format(self.req_date)
     
-class IncorrectLoginDetailsException (ValueError):
+class IncorrectLoginDetailsException (Exception):
     def __init__ (self, request: StudentBookingRequest):
+        super().__init__()
         self.req_name = request.s_name
         self.req_ref = request.s_ref_num
     
@@ -44,3 +48,16 @@ class IncorrectLoginDetailsException (ValueError):
             self.req_name,
             self.req_ref
         )
+        
+class UnknownRoomException (Exception):
+    def __init__ (self, request: StudentBookingRequest):
+        super().__init__()
+        self.req_room_num = request.room_number
+        
+    def __str__ (self):
+        formatted_message = """
+        [-] Error: Requested room number is unavailable
+        Room number: {}
+        """
+        
+        return formatted_message.format(self.req_room_num)
