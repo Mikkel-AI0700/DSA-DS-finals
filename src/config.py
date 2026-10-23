@@ -1,14 +1,29 @@
 from datetime import date
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True, slots=True)
+class RoomTimeGridConfiguration:
+    OPEN_MINUTES: int = 420                             # Opening hours in minutes format
+    CLOSE_MINUTES: int = 1020                           # Closing hours in minutes format
+    SLOT_LENGTH_MINUTES: int = 30                       # Length of one slot, in minutes
+    SLOTS_PER_DAY: int = field(init=False)              # How many slots fit between opening and closing
+    
+    def __post_init__ (self):
+        computed_time_slot = (
+            self.CLOSE_MINUTES - self.OPEN_MINUTES
+        ) // self.SLOT_LENGTH_MINUTES
+        alignment_remainder = (
+            self.CLOSE_MINUTES - self.OPEN_MINUTES
+        ) % self.SLOT_LENGTH_MINUTES
+        
+        if alignment_remainder == 0:
+            object.__setattr__(
+                self, "SLOTS_PER_DAY", computed_time_slot
+            )
+        else:
+            raise ValueError()
 
 @dataclass(frozen=True)
-class RoomTimeGridConfiguration:
-    OPEN_MIN: int = 480                                 # Opening hours in minutes format
-    CLOSE_MIN: int = 1020                               # Closing hours in minutes format
-    SLOT_LENGTH_MIN: int = 10                           # Length of one slot, in minutes
-    SLOTS_PER_DAY: int = 5                              # How many slots fit between opening and closing
-
-@dataclass
 class RoomBookingPolicyConfiguration:
     MIN_SLOTS: int = 2                                  # Shortest booking, counted in slots
     MAX_SLOTS: int = 4                                  # Longest booking, counted in slots
@@ -18,7 +33,7 @@ class RoomBookingPolicyConfiguration:
     CLOSED_DATES: frozenset[date] = frozenset()         # Specific dates with no bookings
     STUDENT_ID_PATTERN: str = r"[0-9]"                  # Regex the requester ID must match (non-empty for now)
 
-@dataclass
+@dataclass(frozen=True)
 class ReasonsConfiguration:
     CANCEL_REASONS: tuple[str, ...] = (                 # Selection of reasons an admin can choose
         "[-] Error: Room {} under maintenance",
