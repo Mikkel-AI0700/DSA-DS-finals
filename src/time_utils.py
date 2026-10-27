@@ -3,21 +3,13 @@ from datetime import date, datetime
 from intervaltree import IntervalTree
 from models import Status
 from config import RoomTimeGridConfiguration
-from errors import (
-    InvalidSlotBoundaryException,
-    InvalidTimeFormatException,
-    OutsideOperatingHoursException
-)
 
 def time_to_minutes (time_str: str) -> int:
-    try:
-        parsed_time = datetime.strptime(time_str, "%H:%M")
-    except ValueError:
-        raise InvalidTimeFormatException(time_str)
+    parsed_time = datetime.strptime(time_str, "%H:%M")
     
     # strptime also accepts "9:5", so make sure the text round-trips exactly
     if parsed_time.strftime("%H:%M") != time_str:
-        raise InvalidTimeFormatException(time_str)
+        raise ValueError("Time must be in HH:MM format: {}".format(time_str))
     
     return parsed_time.hour * 60 + parsed_time.minute
 
@@ -25,11 +17,9 @@ def time_to_slot (time_str: str, config: RoomTimeGridConfiguration) -> int:
     total_minutes = time_to_minutes(time_str)
     
     if total_minutes < config.OPEN_MINUTES or total_minutes > config.CLOSE_MINUTES:
-        open_str = slot_to_time(0, config)
-        close_str = slot_to_time(config.SLOTS_PER_DAY, config)
-        raise OutsideOperatingHoursException(time_str, open_str, close_str)
+        raise ValueError("Time is outside library hours: {}".format(time_str))
     if (total_minutes - config.OPEN_MINUTES) % config.SLOT_LENGTH_MINUTES != 0:
-        raise InvalidSlotBoundaryException(time_str, config.SLOT_LENGTH_MINUTES)
+        raise ValueError("Time does not line up with a slot boundary: {}".format(time_str))
     
     return (total_minutes - config.OPEN_MINUTES) // config.SLOT_LENGTH_MINUTES
 
