@@ -40,8 +40,13 @@ def req_free_from_conflicts (request: StudentBookingRequest):
         
         if day_is_fully_booked(day_tree):
             raise DayFullyBookedException(request)
-        if day_tree.overlaps(request.time_slot_start, request.time_slot_end):
-            raise TimeslotBookedException(request)
+        
+        overlapping_intervals = sorted(
+            day_tree.overlap(request.time_slot_start, request.time_slot_end)
+        )
+        if len(overlapping_intervals) > 0:
+            conflicting_request = overlapping_intervals[0].data
+            raise TimeslotBookedException(request, conflicting_request)
     
 def book_request (request: StudentBookingRequest):
     with schedule_lock:
