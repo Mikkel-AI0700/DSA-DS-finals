@@ -12,6 +12,7 @@ class Status(Enum):
     APPROVED = auto()
     REJECTED = auto()
     CANCELLED = auto()
+    COMPLETED = auto()
 
 class Room:
     def __init__(self, room_number: int):
@@ -37,9 +38,9 @@ class StudentBookingRequest:
         student_name: str,
         student_reference_number: int,
         requested_room_number: int,
-        requested_time_slot_start: str,
-        requested_time_slot_end: str,
-        requested_date: str,
+        requested_time_slot_start: int,
+        requested_time_slot_end: int,
+        requested_date: date,
         request_id: int | None = None
     ):
         self.request_id = request_id
