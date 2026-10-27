@@ -4,6 +4,10 @@ from models import Status, StudentBookingRequest
 from config import ReasonsConfiguration, RoomBookingPolicyConfiguration
 from errors import (
     DayFullyBookedException,
+    InvalidBookingDateException,
+    InvalidDateFormatException,
+    InvalidTimeRangeException,
+    PastTimeSlotException,
     TimeslotBookedException,
     UnknownRoomException
 )
@@ -62,40 +66,42 @@ def submit_request (
         current_time = custom_now
     
     today = current_time.date()
-    booking_date = date.fromisoformat(date_str)
+    try:
+        booking_date = date.fromisoformat(date_str)
+    except ValueError:
+        raise InvalidDateFormatException(date_str)
+    
+    if booking_date.isoformat() != date_str:
+        raise InvalidDateFormatException(date_str)
+    
     max_date = today + timedelta(days=policy_config.MAX_ADVANCE_DAYS)
     
-    if booking_date < today:
-        raise ValueError("Cannot book a past date: {}".format(date_str))
-    if booking_date > max_date:
-        raise ValueError("Cannot book more than {} days in advance: {}".format(
-            policy_config.MAX_ADVANCE_DAYS, date_str
-        ))
-    if booking_date in policy_config.CLOSED_DATES:
-        raise ValueError("Library is closed on date: {}".format(date_str))
-    if booking_date.weekday() in policy_config.CLOSED_WEEKDAYS:
-        raise ValueError("Library is closed on that weekday: {}".format(date_str))
+    if (
+        booking_date < today
+        or booking_date > max_date
+        or booking_date in policy_config.CLOSED_DATES
+        or booking_date.weekday() in policy_config.CLOSED_WEEKDAYS
+    ):
+        raise InvalidBookingDateException(date_str, today, max_date)
     
     start_slot = time_to_slot(start_str, rtg_config)
     end_slot = time_to_slot(end_str, rtg_config)
     
+    min_minutes = policy_config.MIN_SLOTS * rtg_config.SLOT_LENGTH_MINUTES
+    max_minutes = policy_config.MAX_SLOTS * rtg_config.SLOT_LENGTH_MINUTES
+    
     if start_slot >= end_slot:
-        raise ValueError("Start time must be before end time: {} - {}".format(
-            start_str, end_str
-        ))
+        raise InvalidTimeRangeException(start_str, end_str, min_minutes, max_minutes)
     
     slot_count = end_slot - start_slot
     if slot_count < policy_config.MIN_SLOTS or slot_count > policy_config.MAX_SLOTS:
-        raise ValueError("Booking duration must be between {} and {} slots".format(
-            policy_config.MIN_SLOTS, policy_config.MAX_SLOTS
-        ))
+        raise InvalidTimeRangeException(start_str, end_str, min_minutes, max_minutes)
     
     if booking_date == today:
         earliest_slot = get_earliest_bookable_slot(current_time, rtg_config)
         if start_slot < earliest_slot:
-            raise ValueError("Cannot book a slot that has already started or passed: {}".format(
-                start_str
-            ))
+            earliest_time_str = slot_to_time(earliest_slot, rtg_config)
+            raise PastTimeSlotException(start_str, earliest_time_str)
     
     new_id = next(request_id_counter)
     request = StudentBookingRequest(
@@ -214,7 +220,14 @@ def get_day_schedule (
         temp_request = StudentBookingRequest("", 0, room_number, 0, 0, date.today())
         raise UnknownRoomException(temp_request)
     
-    target_date = date.fromisoformat(date_str)
+    try:
+        target_date = date.fromisoformat(date_str)
+    except ValueError:
+        raise InvalidDateFormatException(date_str)
+    
+    if target_date.isoformat() != date_str:
+        raise InvalidDateFormatException(date_str)
+    
     intervals = get_day_bookings(room_number, target_date)
     schedule_entries: list[tuple[str, str, StudentBookingRequest]] = []
     
@@ -229,7 +242,13 @@ def get_week_schedule (
     room_number: int,
     start_date_str: str
 ) -> dict[date, list[tuple[str, str, StudentBookingRequest]]]:
-    start_date = date.fromisoformat(start_date_str)
+    try:
+        start_date = date.fromisoformat(start_date_str)
+    except ValueError:
+        raise InvalidDateFormatException(start_date_str)
+    
+    if start_date.isoformat() != start_date_str:
+        raise InvalidDateFormatException(start_date_str)
     week_schedule: dict[date, list[tuple[str, str, StudentBookingRequest]]] = {}
     
     for day_offset in range(7):
