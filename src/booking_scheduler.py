@@ -1,5 +1,6 @@
+import threading
 from datetime import date
-from intervaltree import IntervalTree
+from intervaltree import Interval, IntervalTree
 from models import Status, StudentBookingRequest
 from errors import DayFullyBookedException, TimeslotBookedException
 from config import RoomBookingPolicyConfiguration, RoomTimeGridConfiguration
@@ -8,6 +9,11 @@ rtg_config = RoomTimeGridConfiguration()
 
 # (room_number, date) -> IntervalTree of that room's bookings on that day
 day_trees: dict[tuple[int, date], IntervalTree] = {}
+
+# Shared with the background timer so it never reads day_trees mid-change.
+# RLock (not Lock) because book_request holds it and then calls
+# req_free_from_conflicts, which takes it again on the same thread.
+schedule_lock = threading.RLock()
 
 def get_day_tree (room_number: int, date_requested: date) -> IntervalTree:
     tree_key = (room_number, date_requested)
@@ -29,16 +35,36 @@ def day_is_fully_booked (day_tree: IntervalTree) -> bool:
         return False
 
 def req_free_from_conflicts (request: StudentBookingRequest):
-    day_tree = get_day_tree(request.room_number, request.date_requested)
-    
-    if day_is_fully_booked(day_tree):
-        raise DayFullyBookedException(request)
-    if day_tree.overlaps(request.time_slot_start, request.time_slot_end):
-        raise TimeslotBookedException(request)
+    with schedule_lock:
+        day_tree = get_day_tree(request.room_number, request.date_requested)
+        
+        if day_is_fully_booked(day_tree):
+            raise DayFullyBookedException(request)
+        if day_tree.overlaps(request.time_slot_start, request.time_slot_end):
+            raise TimeslotBookedException(request)
     
 def book_request (request: StudentBookingRequest):
-    req_free_from_conflicts(request)
-    
-    day_tree = get_day_tree(request.room_number, request.date_requested)
-    day_tree.addi(request.time_slot_start, request.time_slot_end, request)
-    request.status = Status.APPROVED
+    with schedule_lock:
+        req_free_from_conflicts(request)
+        
+        day_tree = get_day_tree(request.room_number, request.date_requested)
+        day_tree.addi(request.time_slot_start, request.time_slot_end, request)
+        request.status = Status.APPROVED
+
+def cancel_booking (request: StudentBookingRequest):
+    with schedule_lock:
+        tree_key = (request.room_number, request.date_requested)
+        day_tree = day_trees.get(tree_key)
+        
+        if day_tree is not None:
+            day_tree.discardi(request.time_slot_start, request.time_slot_end, request)
+
+def get_day_bookings (room_number: int, date_requested: date) -> list[Interval]:
+    with schedule_lock:
+        tree_key = (room_number, date_requested)
+        day_tree = day_trees.get(tree_key)
+        
+        if day_tree is None:
+            return []
+        else:
+            return sorted(day_tree.items())
