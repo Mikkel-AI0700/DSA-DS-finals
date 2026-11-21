@@ -32,7 +32,27 @@ class RoomBookingPolicyConfiguration:
     CLOSED_WEEKDAYS: frozenset[int] = frozenset()               # Weekdays with no bookings (0 = Monday)
     CLOSED_DATES: frozenset[date] = frozenset()                 # Specific dates with no bookings
     STUDENT_ID_PATTERN: str = r"[0-9]"                          # Regex the requester ID must match (non-empty for now)
-    ROOMS: frozenset[int] = frozenset({101, 102, 103, 104})     # Valid room numbers
+    ROOMS: frozenset[str] = frozenset({
+    "Cabuco - Room 1",
+    "Cabuco - Room 2",
+    "Conchu - Room 1",
+    "Cabezas Viewing Room",
+
+    "LibSpace 1 - Room 1",
+    "LibSpace 1 - Room 2",
+    "LibSpace 1 - Room 3",
+    "LibSpace 1 - Room 4",
+
+    "LibSpace 2 - Room 5",
+    "LibSpace 2 - Room 6",
+    "LibSpace 2 - Room 7",
+    "LibSpace 2 - Room 8",
+
+    "Discussion Room 1",
+    "Discussion Room 2",
+    "Discussion Room 3",
+    "Discussion Room 4",
+    })
 
 @dataclass(frozen=True)
 class ReasonsConfiguration:
