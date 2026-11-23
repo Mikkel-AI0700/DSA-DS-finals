@@ -1,3 +1,4 @@
+import re
 import sys
 from datetime import date
 
@@ -6,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
+    QDialog,
     QStackedWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -24,6 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
+    QInputDialog,
 )
 
 import reservation_service
@@ -34,13 +38,10 @@ from models import Status
 # LOGIN DETAILS
 # ---------------------------------------------------------
 
-StudentDetails = {
-    "Student 1": {"Username": "1", "Password": "1", "RefNum": 101},
-    "Student 2": {"Username": "Kyle", "Password": "Password2", "RefNum": 102},
-    "Student 3": {"Username": "Seb", "Password": "Password3", "RefNum": 103},
-}
+# Starts empty: only Admins can register student accounts.
+StudentDetails: dict[str, dict[str, str | int]] = {}
 
-AdminDetails = {
+AdminDetails: dict[str, dict[str, str | int]] = {
     "Admin 1": {"Username": "Admin", "Password": "SuperCoolPassword", "RefNum": 999},
 }
 
@@ -90,6 +91,184 @@ def ClearLayout(layout):
 
 
 # ---------------------------------------------------------
+# WELCOME / AUTH ENTRY PAGE
+# ---------------------------------------------------------
+
+class WelcomePage(QWidget):
+
+    def __init__(self, stacked_widget, main_window):
+
+        super().__init__()
+
+        self.stacked_widget = stacked_widget
+        self.main_window = main_window
+
+        main_layout = QVBoxLayout(self)
+
+        title = QLabel("AEA-IRC Smart Room Reservation System")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+
+        subtitle = QLabel(
+            "Log in as an Admin or Student, or create a new Admin account.\n"
+            "Students cannot self-register and must be added by an Admin."
+        )
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        login_button = QPushButton("Log In (Admin / Student)")
+        login_button.setMinimumWidth(240)
+        login_button.clicked.connect(self.GoToLogin)
+
+        signup_button = QPushButton("Admin Sign Up")
+        signup_button.setMinimumWidth(240)
+        signup_button.clicked.connect(self.GoToAdminSignUp)
+
+        button_col = QVBoxLayout()
+        button_col.addWidget(login_button)
+        button_col.addWidget(signup_button)
+
+        center_layout = QHBoxLayout()
+        center_layout.addStretch()
+        center_layout.addLayout(button_col)
+        center_layout.addStretch()
+
+        main_layout.addStretch()
+        main_layout.addWidget(title)
+        main_layout.addWidget(subtitle)
+        main_layout.addSpacing(20)
+        main_layout.addLayout(center_layout)
+        main_layout.addStretch()
+
+    def GoToLogin(self):
+        self.main_window.Login.ClearLogin()
+        self.stacked_widget.setCurrentWidget(self.main_window.Login)
+
+    def GoToAdminSignUp(self):
+        self.main_window.AdminSignUp.ClearForm()
+        self.stacked_widget.setCurrentWidget(self.main_window.AdminSignUp)
+
+
+# ---------------------------------------------------------
+# ADMIN SIGN-UP PAGE
+# ---------------------------------------------------------
+
+class AdminSignUpPage(QWidget):
+
+    def __init__(self, stacked_widget, main_window):
+
+        super().__init__()
+
+        self.stacked_widget = stacked_widget
+        self.main_window = main_window
+
+        main_layout = QVBoxLayout(self)
+
+        title = QLabel("Admin Sign Up")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+
+        form_layout = QFormLayout()
+
+        self.FullName = QLineEdit()
+        self.Username = QLineEdit()
+        self.Password = QLineEdit()
+        self.Password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ConfirmPassword = QLineEdit()
+        self.ConfirmPassword.setEchoMode(QLineEdit.EchoMode.Password)
+
+        create_button = QPushButton("Create Admin Account")
+        create_button.clicked.connect(self.RegisterAdmin)
+
+        back_button = QPushButton("Back")
+        back_button.clicked.connect(self.GoBack)
+
+        form_layout.addRow("Full Name", self.FullName)
+        form_layout.addRow("Username", self.Username)
+        form_layout.addRow("Password", self.Password)
+        form_layout.addRow("Confirm Password", self.ConfirmPassword)
+        form_layout.addRow(create_button)
+        form_layout.addRow(back_button)
+
+        center_layout = QHBoxLayout()
+        center_layout.addStretch()
+        center_layout.addLayout(form_layout)
+        center_layout.addStretch()
+
+        main_layout.addStretch()
+        main_layout.addWidget(title)
+        main_layout.addSpacing(12)
+        main_layout.addLayout(center_layout)
+        main_layout.addStretch()
+
+    def RegisterAdmin(self):
+
+        full_name = self.FullName.text().strip()
+        username = self.Username.text().strip()
+        password = self.Password.text()
+        confirm = self.ConfirmPassword.text()
+
+        if not full_name or not username or not password:
+            QMessageBox.warning(
+                self,
+                "Incomplete Form",
+                "Please fill in all fields."
+            )
+            return
+
+        if password != confirm:
+            QMessageBox.warning(
+                self,
+                "Password Mismatch",
+                "Passwords do not match."
+            )
+            return
+
+        existing_usernames = {acc["Username"] for acc in AdminDetails.values()}
+        if username in existing_usernames:
+            QMessageBox.warning(
+                self,
+                "Duplicate Username",
+                "That admin username is already taken."
+            )
+            return
+
+        if full_name in AdminDetails:
+            QMessageBox.warning(
+                self,
+                "Duplicate Name",
+                "An admin with that name already exists."
+            )
+            return
+
+        next_ref = max((int(acc["RefNum"]) for acc in AdminDetails.values()), default=998) + 1
+        AdminDetails[full_name] = {
+            "Username": username,
+            "Password": password,
+            "RefNum": next_ref,
+        }
+
+        QMessageBox.information(
+            self,
+            "Admin Registered",
+            f"Admin account '{username}' created. You can now log in."
+        )
+        self.ClearForm()
+        self.main_window.Login.ClearLogin()
+        self.main_window.Login.Checker.setCurrentText("Admin")
+        self.stacked_widget.setCurrentWidget(self.main_window.Login)
+
+    def GoBack(self):
+        self.ClearForm()
+        self.stacked_widget.setCurrentWidget(self.main_window.Welcome)
+
+    def ClearForm(self):
+        self.FullName.clear()
+        self.Username.clear()
+        self.Password.clear()
+        self.ConfirmPassword.clear()
+
+
+# ---------------------------------------------------------
 # LOGIN PAGE
 # ---------------------------------------------------------
 
@@ -120,10 +299,14 @@ class LogInPage(QWidget):
         enter_button = QPushButton("Log In")
         enter_button.clicked.connect(self.LOGGINGIN)
 
+        back_button = QPushButton("Back")
+        back_button.clicked.connect(self.GoBack)
+
         form_layout.addRow("Enter Username", self.Username)
         form_layout.addRow("Enter Password", self.Password)
         form_layout.addRow("Account Type", self.Checker)
         form_layout.addRow(enter_button)
+        form_layout.addRow(back_button)
 
         center_layout = QHBoxLayout()
 
@@ -137,18 +320,23 @@ class LogInPage(QWidget):
 
     def LOGGINGIN(self):
 
-        username = self.Username.text()
+        username = self.Username.text().strip()
         password = self.Password.text()
+        role = self.Checker.currentText()
 
-        if self.Checker.currentText() == "Student":
-
+        if role == "Student":
+            if not StudentDetails:
+                QMessageBox.warning(
+                    self,
+                    "No Students Registered",
+                    "No student accounts exist yet. Please ask an Admin to add your account."
+                )
+                return
             accounts = StudentDetails
-            destination_index = 2
-
+            destination_widget = self.main_window.SHome
         else:
-
             accounts = AdminDetails
-            destination_index = 1
+            destination_widget = self.main_window.AHome
 
         for name, account in accounts.items():
 
@@ -158,8 +346,15 @@ class LogInPage(QWidget):
             ):
 
                 self.main_window.current_user_name = name
-                self.main_window.current_ref_num = account["RefNum"]
-                self.stacked_widget.setCurrentIndex(destination_index)
+                self.main_window.current_ref_num = int(account["RefNum"])
+                self.stacked_widget.setCurrentWidget(destination_widget)
+
+                if role == "Student":
+                    self.main_window.SHome.RefreshMyRequests()
+                    self.main_window.SHome.UpdateSchedule()
+                else:
+                    self.main_window.AHome.UpdateStudentCount()
+                    self.main_window.AHome.ShowReservations()
 
                 self.logout_button.show()
 
@@ -171,10 +366,96 @@ class LogInPage(QWidget):
             "Incorrect username or password."
         )
 
+    def GoBack(self):
+        self.ClearLogin()
+        self.stacked_widget.setCurrentWidget(self.main_window.Welcome)
+
     def ClearLogin(self):
 
         self.Username.clear()
         self.Password.clear()
+
+
+# ---------------------------------------------------------
+# ADMIN-ONLY ADD STUDENT DIALOG
+# ---------------------------------------------------------
+
+class AddStudentDialog(QDialog):
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Student Account (Admin Only)")
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.FullName = QLineEdit()
+        self.RefNum = QLineEdit()
+        self.RefNum.setPlaceholderText("Numeric ID (e.g. 20240001)")
+        self.Username = QLineEdit()
+        self.Password = QLineEdit()
+        self.Password.setEchoMode(QLineEdit.EchoMode.Password)
+
+        form.addRow("Student Full Name", self.FullName)
+        form.addRow("Reference Number", self.RefNum)
+        form.addRow("Username", self.Username)
+        form.addRow("Password", self.Password)
+
+        layout.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Register Student")
+        cancel_btn = QPushButton("Cancel")
+        save_btn.clicked.connect(self.ValidateAndAccept)
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+    def ValidateAndAccept(self):
+        full_name = self.FullName.text().strip()
+        ref_str = self.RefNum.text().strip()
+        username = self.Username.text().strip()
+        password = self.Password.text()
+
+        if not full_name or not ref_str or not username or not password:
+            QMessageBox.warning(self, "Incomplete Form", "Please fill in all fields.")
+            return
+
+        try:
+            ref_num = int(ref_str)
+        except ValueError:
+            QMessageBox.warning(self, "Invalid ID", "Reference Number must be numeric.")
+            return
+
+        policy_config = reservation_service.get_policy_config()
+        if re.search(policy_config.STUDENT_ID_PATTERN, str(ref_num)) is None:
+            QMessageBox.warning(
+                self,
+                "Invalid ID Pattern",
+                f"Reference Number must match pattern: {policy_config.STUDENT_ID_PATTERN}"
+            )
+            return
+
+        if full_name in StudentDetails:
+            QMessageBox.warning(self, "Duplicate Name", "A student with that name is already registered.")
+            return
+
+        if any(acc["Username"] == username for acc in StudentDetails.values()):
+            QMessageBox.warning(self, "Duplicate Username", "That student username is already taken.")
+            return
+
+        if any(int(acc["RefNum"]) == ref_num for acc in StudentDetails.values()):
+            QMessageBox.warning(self, "Duplicate ID", "That Reference Number is already registered.")
+            return
+
+        StudentDetails[full_name] = {
+            "Username": username,
+            "Password": password,
+            "RefNum": ref_num,
+        }
+        self.accept()
 
 
 # ---------------------------------------------------------
@@ -243,9 +524,20 @@ class HomeAdmin(QWidget):
 
         self.ReservationCountLabel = QLabel("Reservations: 0")
 
+        self.StudentCountLabel = QLabel(f"Registered Students: {len(StudentDetails)}")
+
+        self.AddStudentButton = QPushButton("Add Student")
+        self.AddStudentButton.clicked.connect(self.OpenAddStudentDialog)
+
+        self.SuggestButton = QPushButton("Suggest Max Approvals (Conflict Graph)")
+        self.SuggestButton.clicked.connect(self.SuggestOptimalApprovals)
+
         approval_layout.addWidget(approval_title)
+        approval_layout.addWidget(self.StudentCountLabel)
+        approval_layout.addWidget(self.AddStudentButton)
         approval_layout.addWidget(self.SelectedRoomLabel)
         approval_layout.addWidget(self.ReservationCountLabel)
+        approval_layout.addWidget(self.SuggestButton)
 
         # Scroll area for reservation cards.
 
@@ -267,6 +559,19 @@ class HomeAdmin(QWidget):
         main_layout.addLayout(building_layout, 1)
         main_layout.addLayout(content_layout, 3)
         main_layout.addLayout(approval_layout, 2)
+
+    def UpdateStudentCount(self):
+        self.StudentCountLabel.setText(f"Registered Students: {len(StudentDetails)}")
+
+    def OpenAddStudentDialog(self):
+        dialog = AddStudentDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.UpdateStudentCount()
+            QMessageBox.information(
+                self,
+                "Student Added",
+                f"Student '{dialog.FullName.text().strip()}' can now log in."
+            )
 
     def ClearFloors(self):
 
@@ -349,10 +654,9 @@ class HomeAdmin(QWidget):
 
             return
 
-        room_requests = [
-            req for req in reservation_service.all_requests.values()
-            if req.room_number == self.SelectedRoom
-        ]
+        room_requests = reservation_service.get_room_requests(self.SelectedRoom)
+        conflict_graph = reservation_service.build_pending_conflict_graph(self.SelectedRoom)
+        rtg_config = reservation_service.get_time_grid_config()
 
         self.ReservationCountLabel.setText(
             f"Reservations: {len(room_requests)}"
@@ -373,17 +677,17 @@ class HomeAdmin(QWidget):
             card_layout = QVBoxLayout(card)
 
             name_label = QLabel(
-                f"Name: {reservation.s_name}"
+                f"Req #{reservation.request_id} | Name: {reservation.s_name}"
             )
 
             date_label = QLabel(
                 f"Date: {reservation.date_requested}"
             )
 
-            start_t = reservation_service.slot_to_time(reservation.time_slot_start, reservation_service.rtg_config)
-            end_t = reservation_service.slot_to_time(reservation.time_slot_end, reservation_service.rtg_config)
+            start_t = reservation_service.slot_to_time(reservation.time_slot_start, rtg_config)
+            end_t = reservation_service.slot_to_time(reservation.time_slot_end, rtg_config)
             time_label = QLabel(
-                f"Time: {start_t} - {end_t}"
+                f"Time: {start_t} - {end_t} | Group Size: {reservation.group_size}"
             )
 
             status_str = reservation.status.name.title()
@@ -394,14 +698,31 @@ class HomeAdmin(QWidget):
             card_layout.addWidget(name_label)
             card_layout.addWidget(date_label)
             card_layout.addWidget(time_label)
+
+            if reservation.purpose:
+                purpose_label = QLabel(f"Purpose: {reservation.purpose}")
+                purpose_label.setWordWrap(True)
+                card_layout.addWidget(purpose_label)
+
             card_layout.addWidget(status_label)
 
             if reservation.status == Status.PENDING:
+                neighbors = sorted(conflict_graph.get(reservation.request_id, set()))
+                if neighbors:
+                    neighbor_str = ", ".join(f"#{nid}" for nid in neighbors)
+                    conflict_label = QLabel(
+                        f"Conflict Graph Degree: {len(neighbors)} (Overlaps: {neighbor_str})"
+                    )
+                    conflict_label.setStyleSheet("color: #C62828; font-weight: bold;")
+                else:
+                    conflict_label = QLabel("Conflict Graph Degree: 0 (No pending overlaps)")
+                    conflict_label.setStyleSheet("color: #2E7D32;")
+                card_layout.addWidget(conflict_label)
 
                 button_layout = QHBoxLayout()
 
                 approve_button = QPushButton("Approve")
-                reject_button = QPushButton("Reject")
+                reject_button = QPushButton("Cancel / Reject")
 
                 approve_button.clicked.connect(
                     lambda checked=False, r_id=reservation.request_id:
@@ -418,6 +739,14 @@ class HomeAdmin(QWidget):
 
                 card_layout.addLayout(button_layout)
 
+            elif reservation.status == Status.APPROVED:
+                cancel_button = QPushButton("Cancel Approved Booking")
+                cancel_button.clicked.connect(
+                    lambda checked=False, r_id=reservation.request_id:
+                        self.RejectReservation(r_id)
+                )
+                card_layout.addWidget(cancel_button)
+
             card.setStyleSheet("""
                 QWidget {
                     border: 1px solid gray;
@@ -433,12 +762,19 @@ class HomeAdmin(QWidget):
     def ApproveReservation(self, request_id):
 
         try:
-            reservation_service.approve_request(request_id)
-            QMessageBox.information(
-                self,
-                "Reservation Approved",
-                "The reservation has been approved."
-            )
+            result = reservation_service.approve_request(request_id)
+            if result.status == Status.APPROVED:
+                QMessageBox.information(
+                    self,
+                    "Reservation Approved",
+                    "The reservation has been approved. Any overlapping pending requests were auto-rejected."
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Reservation Rejected",
+                    result.reason or "The reservation could not be approved due to a conflict."
+                )
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
@@ -446,24 +782,81 @@ class HomeAdmin(QWidget):
 
     def RejectReservation(self, request_id):
 
-        answer = QMessageBox.question(
+        reason_templates = reservation_service.get_cancel_reasons()
+        room_label = self.SelectedRoom or ""
+        reason_choices = [template.format(room_label) for template in reason_templates]
+
+        selected_reason, ok = QInputDialog.getItem(
             self,
-            "Reject Reservation",
-            "Are you sure you want to reject this reservation?"
+            "Select Cancellation Reason",
+            "Choose a reason for cancelling this reservation:",
+            reason_choices,
+            0,
+            False,
         )
 
-        if answer == QMessageBox.StandardButton.Yes:
-
+        if ok and selected_reason:
+            reason_index = reason_choices.index(selected_reason)
             try:
-                reservation_service.admin_cancel_request(request_id, 0)
+                reservation_service.admin_cancel_request(request_id, reason_index)
                 QMessageBox.information(
                     self,
-                    "Reservation Rejected",
-                    "The reservation has been rejected."
+                    "Reservation Cancelled",
+                    f"The reservation has been cancelled.\nReason: {selected_reason}"
                 )
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 
+            self.ShowReservations()
+
+    def SuggestOptimalApprovals(self):
+
+        if self.SelectedRoom is None:
+            QMessageBox.warning(
+                self,
+                "No Room Selected",
+                "Please select a room first to analyze its pending conflict graph."
+            )
+            return
+
+        suggested = reservation_service.suggest_max_non_conflicting_approvals(self.SelectedRoom)
+        if not suggested:
+            QMessageBox.information(
+                self,
+                "No Pending Requests",
+                "There are no pending requests for this room to schedule."
+            )
+            return
+
+        rtg_config = reservation_service.get_time_grid_config()
+        lines = []
+        for req in suggested:
+            start_t = reservation_service.slot_to_time(req.time_slot_start, rtg_config)
+            end_t = reservation_service.slot_to_time(req.time_slot_end, rtg_config)
+            lines.append(
+                f"• Req #{req.request_id} — {req.s_name} ({req.date_requested}, {start_t}-{end_t})"
+            )
+
+        summary = (
+            "Maximum Independent Set (Interval Conflict Graph)\n"
+            f"Optimal conflict-free approvals ({len(suggested)} request(s)):\n\n"
+            + "\n".join(lines)
+            + "\n\nApprove all suggested requests now? (Overlapping pending requests will be auto-rejected.)"
+        )
+
+        answer = QMessageBox.question(
+            self,
+            "Conflict Graph Suggestion",
+            summary,
+        )
+
+        if answer == QMessageBox.StandardButton.Yes:
+            approved = reservation_service.approve_suggested_requests(self.SelectedRoom)
+            QMessageBox.information(
+                self,
+                "Suggested Requests Approved",
+                f"Approved {len(approved)} non-conflicting reservation(s)."
+            )
             self.ShowReservations()
 
 
@@ -534,9 +927,12 @@ class HomeStudent(QWidget):
         self.WeekPicker.setDate(QDate.currentDate())
         self.WeekPicker.setDisplayFormat("MMMM d, yyyy")
 
+        rtg_config = reservation_service.get_time_grid_config()
+        policy_config = reservation_service.get_policy_config()
+
         self.ScheduleTable = QTableWidget()
 
-        self.ScheduleTable.setRowCount(28)
+        self.ScheduleTable.setRowCount(rtg_config.SLOTS_PER_DAY)
         self.ScheduleTable.setColumnCount(5)
 
         self.ScheduleTable.setEditTriggers(
@@ -547,11 +943,15 @@ class HomeStudent(QWidget):
             QHeaderView.ResizeMode.Stretch
         )
 
+        self.AvailabilityLabel = QLabel("Available Slots (U \\ B): Select a room")
+        self.AvailabilityLabel.setWordWrap(True)
+
         self.Schedlayer.addWidget(
             QLabel("Weekly Schedule")
         )
 
         self.Schedlayer.addWidget(self.WeekPicker)
+        self.Schedlayer.addWidget(self.AvailabilityLabel)
         self.Schedlayer.addWidget(self.ScheduleTable)
 
         content_layout.addLayout(self.Schedlayer, 1)
@@ -560,7 +960,7 @@ class HomeStudent(QWidget):
             lambda date: self.UpdateSchedule()
         )
 
-        # RIGHT SIDE: RESERVATION FORM
+        # RIGHT SIDE: RESERVATION FORM & MY REQUESTS
 
         reservation_layout = QVBoxLayout()
 
@@ -573,17 +973,25 @@ class HomeStudent(QWidget):
         self.RoomAnswer.setPlaceholderText("Select a room")
         self.RoomAnswer.setReadOnly(True)
 
+        self.GroupSizeAnswer = QSpinBox()
+        self.GroupSizeAnswer.setRange(1, 20)
+        self.GroupSizeAnswer.setValue(policy_config.MIN_GROUP_SIZE)
+
         self.DateAnswer = QDateEdit()
         self.DateAnswer.setCalendarPopup(True)
         self.DateAnswer.setDate(QDate.currentDate())
         self.DateAnswer.setDisplayFormat("MMMM d, yyyy")
+        self.DateAnswer.dateChanged.connect(
+            lambda _date: self.UpdateAvailabilityLabel()
+        )
 
+        open_hour, open_min = divmod(rtg_config.OPEN_MINUTES, 60)
         self.TimeInAnswer = QTimeEdit()
-        self.TimeInAnswer.setTime(QTime(7, 0))
+        self.TimeInAnswer.setTime(QTime(open_hour, open_min))
         self.TimeInAnswer.setDisplayFormat("h:mm AP")
 
         self.TimeOutAnswer = QTimeEdit()
-        self.TimeOutAnswer.setTime(QTime(8, 0))
+        self.TimeOutAnswer.setTime(QTime(open_hour, open_min).addSecs(policy_config.MIN_SLOTS * rtg_config.SLOT_LENGTH_MINUTES * 60))
         self.TimeOutAnswer.setDisplayFormat("h:mm AP")
 
         self.PurposeAnswer = QTextEdit()
@@ -591,13 +999,14 @@ class HomeStudent(QWidget):
             "Enter purpose of reservation"
         )
 
-        self.PurposeAnswer.setMaximumHeight(150)
+        self.PurposeAnswer.setMaximumHeight(100)
 
         reserve_button = QPushButton("Submit Reservation")
         reserve_button.clicked.connect(self.ReserveRoom)
 
         reserve_form.addRow("Name", self.NameAnswer)
         reserve_form.addRow("Selected Room", self.RoomAnswer)
+        reserve_form.addRow("Group Size", self.GroupSizeAnswer)
         reserve_form.addRow("Date", self.DateAnswer)
         reserve_form.addRow("Time Start", self.TimeInAnswer)
         reserve_form.addRow("Time End", self.TimeOutAnswer)
@@ -605,7 +1014,17 @@ class HomeStudent(QWidget):
         reserve_form.addRow(reserve_button)
 
         reservation_layout.addLayout(reserve_form)
-        reservation_layout.addStretch()
+
+        my_req_title = QLabel("My Requests")
+        my_req_title.setStyleSheet("font-size: 14px; font-weight: bold; margin-top: 8px;")
+        reservation_layout.addWidget(my_req_title)
+
+        self.MyRequestsScroll = QScrollArea()
+        self.MyRequestsScroll.setWidgetResizable(True)
+        self.MyRequestsContainer = QWidget()
+        self.MyRequestsList = QVBoxLayout(self.MyRequestsContainer)
+        self.MyRequestsScroll.setWidget(self.MyRequestsContainer)
+        reservation_layout.addWidget(self.MyRequestsScroll, 1)
 
         # COMBINE THREE SIDES
 
@@ -679,10 +1098,33 @@ class HomeStudent(QWidget):
 
         self.UpdateSchedule()
 
+    def UpdateAvailabilityLabel(self):
+
+        if self.SelectedRoom is None:
+            self.AvailabilityLabel.setText("Available Slots (U \\ B): Select a room")
+            return
+
+        day_str = self.DateAnswer.date().toString("yyyy-MM-dd")
+        try:
+            free_ranges = reservation_service.get_available_time_ranges(self.SelectedRoom, day_str)
+            if free_ranges:
+                formatted = ", ".join(f"{s}-{e}" for s, e in free_ranges)
+                self.AvailabilityLabel.setText(f"Available Slots on {day_str} (U \\ B): {formatted}")
+            else:
+                self.AvailabilityLabel.setText(f"Available Slots on {day_str} (U \\ B): Fully Booked")
+        except Exception:
+            self.AvailabilityLabel.setText(f"Available Slots on {day_str} (U \\ B): Unavailable")
+
     def UpdateSchedule(self):
 
         if self.SelectedRoom is None:
             return
+
+        self.UpdateAvailabilityLabel()
+
+        rtg_config = reservation_service.get_time_grid_config()
+        open_hour, open_min = divmod(rtg_config.OPEN_MINUTES, 60)
+        slot_secs = rtg_config.SLOT_LENGTH_MINUTES * 60
 
         selected_date = self.WeekPicker.date()
 
@@ -697,12 +1139,32 @@ class HomeStudent(QWidget):
             for day in days
         ]
 
+        self.ScheduleTable.setRowCount(rtg_config.SLOTS_PER_DAY)
         self.ScheduleTable.setHorizontalHeaderLabels(headers)
 
-        for row in range(28):
+        # Pre-fetch active requests per day (APPROVED, COMPLETED, and PENDING)
+        day_requests: list[list] = []
+        for day in days:
+            day_str = day.toString("yyyy-MM-dd")
+            try:
+                reqs = [
+                    r for r in reservation_service.get_room_requests(self.SelectedRoom, day_str)
+                    if r.status not in (Status.REJECTED, Status.CANCELLED)
+                ]
+            except Exception:
+                reqs = []
+            day_requests.append(reqs)
 
-            slot_start = QTime(7, 0).addSecs(row * 30 * 60)
-            slot_end = slot_start.addSecs(30 * 60)
+        status_priority = {
+            Status.APPROVED: 3,
+            Status.COMPLETED: 2,
+            Status.PENDING: 1,
+        }
+
+        for row in range(rtg_config.SLOTS_PER_DAY):
+
+            slot_start = QTime(open_hour, open_min).addSecs(row * slot_secs)
+            slot_end = slot_start.addSecs(slot_secs)
 
             time_label = (
                 f"{slot_start.toString('h:mm AP')} - "
@@ -714,46 +1176,100 @@ class HomeStudent(QWidget):
                 QTableWidgetItem(time_label)
             )
 
-            for column, day in enumerate(days):
+            for column, reqs in enumerate(day_requests):
 
                 cell = QTableWidgetItem("Free")
-
                 cell.setBackground(QColor("#C8E6C9"))
 
-                day_str = day.toString("yyyy-MM-dd")
-                try:
-                    bookings = reservation_service.get_day_schedule(self.SelectedRoom, day_str)
-                    for start_str, end_str, req in bookings:
-                        if req.status == Status.REJECTED or req.status == Status.CANCELLED:
-                            continue
+                matched_status = None
+                for req in reqs:
+                    if req.time_slot_start <= row < req.time_slot_end:
+                        if (
+                            matched_status is None
+                            or status_priority.get(req.status, 0) > status_priority.get(matched_status, 0)
+                        ):
+                            matched_status = req.status
 
-                        r_start = QTime.fromString(start_str, "HH:mm")
-                        r_end = QTime.fromString(end_str, "HH:mm")
+                if matched_status is not None:
+                    status_text = matched_status.name.title()
+                    cell.setText(status_text)
 
-                        if slot_start < r_end and slot_end > r_start:
-
-                            status = req.status.name.title()
-
-                            cell.setText(status)
-
-                            if status == "Pending":
-                                cell.setBackground(QColor("#FFE0B2"))
-
-                            elif status == "Approved":
-                                cell.setBackground(QColor("#EF9A9A"))
-
-                            elif status == "Completed":
-                                cell.setBackground(QColor("#B0BEC5"))
-
-                            break
-                except Exception:
-                    pass
+                    if matched_status == Status.PENDING:
+                        cell.setBackground(QColor("#FFE0B2"))
+                    elif matched_status == Status.APPROVED:
+                        cell.setBackground(QColor("#EF9A9A"))
+                    elif matched_status == Status.COMPLETED:
+                        cell.setBackground(QColor("#B0BEC5"))
 
                 self.ScheduleTable.setItem(
                     row,
                     column,
                     cell
                 )
+
+    def RefreshMyRequests(self):
+
+        ClearLayout(self.MyRequestsList)
+        rtg_config = reservation_service.get_time_grid_config()
+        my_reqs = reservation_service.get_student_requests(self.main_window.current_ref_num)
+
+        if not my_reqs:
+            self.MyRequestsList.addWidget(QLabel("No active requests yet."))
+            self.MyRequestsList.addStretch()
+            return
+
+        for req in my_reqs:
+            card = QWidget()
+            card_layout = QVBoxLayout(card)
+
+            start_t = reservation_service.slot_to_time(req.time_slot_start, rtg_config)
+            end_t = reservation_service.slot_to_time(req.time_slot_end, rtg_config)
+            card_layout.addWidget(QLabel(f"#{req.request_id} | {req.room_number}"))
+            card_layout.addWidget(QLabel(f"{req.date_requested} ({start_t} - {end_t})"))
+            card_layout.addWidget(QLabel(f"Status: {req.status.name.title()}"))
+
+            if req.status == Status.REJECTED and req.reason:
+                reason_lbl = QLabel(req.reason.strip())
+                reason_lbl.setWordWrap(True)
+                reason_lbl.setStyleSheet("color: #C62828;")
+                card_layout.addWidget(reason_lbl)
+
+            if req.status == Status.PENDING:
+                cancel_btn = QPushButton("Cancel Request")
+                cancel_btn.clicked.connect(
+                    lambda checked=False, r_id=req.request_id:
+                        self.CancelOwnReservation(r_id)
+                )
+                card_layout.addWidget(cancel_btn)
+
+            card.setStyleSheet("""
+                QWidget {
+                    border: 1px solid #BDBDBD;
+                    border-radius: 4px;
+                    padding: 4px;
+                }
+            """)
+            self.MyRequestsList.addWidget(card)
+
+        self.MyRequestsList.addStretch()
+
+    def CancelOwnReservation(self, request_id):
+
+        try:
+            reservation_service.cancel_own_request(
+                request_id,
+                self.main_window.current_ref_num,
+            )
+            QMessageBox.information(
+                self,
+                "Request Cancelled",
+                f"Request #{request_id} has been cancelled."
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+        self.RefreshMyRequests()
+        self.UpdateSchedule()
 
     def ReserveRoom(self, checked=False):
 
@@ -769,6 +1285,7 @@ class HomeStudent(QWidget):
 
         name = self.NameAnswer.text().strip()
         purpose = self.PurposeAnswer.toPlainText().strip()
+        group_size = self.GroupSizeAnswer.value()
         date_val = self.DateAnswer.date()
         start = self.TimeInAnswer.time()
         end = self.TimeOutAnswer.time()
@@ -784,24 +1301,34 @@ class HomeStudent(QWidget):
             return
 
         try:
-            reservation_service.submit_request(
+            req = reservation_service.submit_request(
                 student_name=name,
                 student_ref_num=self.main_window.current_ref_num,
                 room_number=self.SelectedRoom,
                 date_str=date_val.toString("yyyy-MM-dd"),
                 start_str=start.toString("HH:mm"),
-                end_str=end.toString("HH:mm")
+                end_str=end.toString("HH:mm"),
+                group_size=group_size,
+                purpose=purpose,
             )
 
-            QMessageBox.information(
-                self,
-                "Reservation Submitted",
-                "Your reservation has been submitted for approval."
-            )
+            if req.status == Status.REJECTED:
+                QMessageBox.warning(
+                    self,
+                    "Reservation Rejected",
+                    req.reason or "The selected time slot is already booked."
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Reservation Submitted",
+                    f"Request #{req.request_id} has been submitted for approval."
+                )
+                self.NameAnswer.clear()
+                self.PurposeAnswer.clear()
 
-            self.NameAnswer.clear()
-            self.PurposeAnswer.clear()
             self.UpdateSchedule()
+            self.RefreshMyRequests()
 
         except Exception as e:
             QMessageBox.warning(
@@ -833,6 +1360,16 @@ class MainWindow(QWidget):
         self.LogoutButton.hide()
         self.LogoutButton.clicked.connect(self.Logout)
 
+        self.Welcome = WelcomePage(
+            self.stacked_widget,
+            self
+        )
+
+        self.AdminSignUp = AdminSignUpPage(
+            self.stacked_widget,
+            self
+        )
+
         self.Login = LogInPage(
             self.stacked_widget,
             self.LogoutButton,
@@ -842,11 +1379,13 @@ class MainWindow(QWidget):
         self.AHome = HomeAdmin()
         self.SHome = HomeStudent(self)
 
+        self.stacked_widget.addWidget(self.Welcome)
         self.stacked_widget.addWidget(self.Login)
+        self.stacked_widget.addWidget(self.AdminSignUp)
         self.stacked_widget.addWidget(self.AHome)
         self.stacked_widget.addWidget(self.SHome)
 
-        self.stacked_widget.setCurrentWidget(self.Login)
+        self.stacked_widget.setCurrentWidget(self.Welcome)
 
         main_layout.addWidget(self.stacked_widget)
 
@@ -857,7 +1396,7 @@ class MainWindow(QWidget):
 
     def Logout(self):
 
-        self.stacked_widget.setCurrentWidget(self.Login)
+        self.stacked_widget.setCurrentWidget(self.Welcome)
 
         self.Login.ClearLogin()
 

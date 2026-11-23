@@ -3,62 +3,78 @@ from datetime import date, datetime
 from intervaltree import IntervalTree
 from models import Status
 from config import RoomTimeGridConfiguration
+from errors import (
+    InvalidSlotBoundaryException,
+    InvalidTimeFormatException,
+    OutsideOperatingHoursException,
+)
 
-def time_to_minutes (time_str: str) -> int:
-    parsed_time = datetime.strptime(time_str, "%H:%M")
-    
+
+def time_to_minutes(time_str: str) -> int:
+    try:
+        parsed_time = datetime.strptime(time_str, "%H:%M")
+    except ValueError as exc:
+        raise InvalidTimeFormatException(time_str) from exc
+
     # strptime also accepts "9:5", so make sure the text round-trips exactly
     if parsed_time.strftime("%H:%M") != time_str:
-        raise ValueError("Time must be in HH:MM format: {}".format(time_str))
-    
+        raise InvalidTimeFormatException(time_str)
+
     return parsed_time.hour * 60 + parsed_time.minute
 
-def time_to_slot (time_str: str, config: RoomTimeGridConfiguration) -> int:
+
+def time_to_slot(time_str: str, config: RoomTimeGridConfiguration) -> int:
     total_minutes = time_to_minutes(time_str)
-    
+
     if total_minutes < config.OPEN_MINUTES or total_minutes > config.CLOSE_MINUTES:
-        raise ValueError("Time is outside library hours: {}".format(time_str))
+        open_str = slot_to_time(0, config)
+        close_str = slot_to_time(config.SLOTS_PER_DAY, config)
+        raise OutsideOperatingHoursException(time_str, open_str, close_str)
     if (total_minutes - config.OPEN_MINUTES) % config.SLOT_LENGTH_MINUTES != 0:
-        raise ValueError("Time does not line up with a slot boundary: {}".format(time_str))
-    
+        raise InvalidSlotBoundaryException(time_str, config.SLOT_LENGTH_MINUTES)
+
     return (total_minutes - config.OPEN_MINUTES) // config.SLOT_LENGTH_MINUTES
 
-def slot_to_time (slot: int, config: RoomTimeGridConfiguration) -> str:
+
+def slot_to_time(slot: int, config: RoomTimeGridConfiguration) -> str:
     total_minutes = config.OPEN_MINUTES + slot * config.SLOT_LENGTH_MINUTES
-    
+
     return "{:02d}:{:02d}".format(total_minutes // 60, total_minutes % 60)
 
-def get_elapsed_slots (current_time: datetime, config: RoomTimeGridConfiguration) -> int:
-    # How many whole slots have fully passed today (rounded down).
+
+def get_elapsed_slots(current_time: datetime, config: RoomTimeGridConfiguration) -> int:
+    # Discrete floor function: how many whole slots have fully passed today.
     # At 08:10 with a 07:00 open and 30-minute slots: 70 // 30 = 2
     current_minutes = current_time.hour * 60 + current_time.minute
     elapsed_slots = (current_minutes - config.OPEN_MINUTES) // config.SLOT_LENGTH_MINUTES
-    
+
     if elapsed_slots < 0:
         return 0
     if elapsed_slots > config.SLOTS_PER_DAY:
         return config.SLOTS_PER_DAY
-    
+
     return elapsed_slots
 
-def get_earliest_bookable_slot (current_time: datetime, config: RoomTimeGridConfiguration) -> int:
-    # First slot that has not started yet today (rounded up).
+
+def get_earliest_bookable_slot(current_time: datetime, config: RoomTimeGridConfiguration) -> int:
+    # Discrete ceiling function: first slot that has not started yet today.
     # At 08:10 with a 07:00 open and 30-minute slots: ceil(70 / 30) = 3, so 08:30
     current_minutes = current_time.hour * 60 + current_time.minute
     earliest_slot = -(-(current_minutes - config.OPEN_MINUTES) // config.SLOT_LENGTH_MINUTES)
-    
+
     if earliest_slot < 0:
         return 0
-    
+
     return earliest_slot
 
+
 class ActiveReservationTimer:
-    def __init__ (
+    def __init__(
         self,
-        day_trees: dict[tuple[int, date], IntervalTree],
+        day_trees: dict[tuple[str, date], IntervalTree],
         schedule_lock: threading.RLock,
         config: RoomTimeGridConfiguration,
-        interval_seconds: int = 30
+        interval_seconds: int = 30,
     ):
         self.day_trees = day_trees
         self.schedule_lock = schedule_lock
